@@ -13,6 +13,7 @@ const BG = { white: 'bg-slate-200', cream: 'bg-amber-100', dark: 'bg-neutral-900
 export default function ReaderPage({ bookId, initialPage, onBack, onSettings }) {
   const [book, setBook] = useState(), [pdf, setPdf] = useState(), [dim, setDim] = useState()
   const [page, setPage] = useState(1), [zoom, setZoom] = useState(1), [single, setSingle] = useState(false)
+  const [popupOpen, setPopupOpen] = useState(false)
   const [theme, setTheme] = useState(getSettings().theme), [sel, setSel] = useState(), [width, setWidth] = useState(360)
   const [scanned, setScanned] = useState(false), [msg, setMsg] = useState(''), [err, setErr] = useState(''), [annotations, setAnnotations] = useState([]), [showNotes, setShowNotes] = useState(false)
   const scroller = useRef(), timer = useRef(), pinch = useRef(), zoomAnchor = useRef(), lastPinchUpdate = useRef(0)
@@ -139,6 +140,7 @@ export default function ReaderPage({ bookId, initialPage, onBack, onSettings }) 
       const range = s.getRangeAt(0), pageRect = node.getBoundingClientRect()
       const rects = [...range.getClientRects()].map(r => ({ x: Math.max(0, (r.left - pageRect.left) / pageRect.width), y: Math.max(0, (r.top - pageRect.top) / pageRect.height), w: Math.min(1, r.width / pageRect.width), h: Math.min(1, r.height / pageRect.height) }))
       setSel({ text, context, rect: range.getBoundingClientRect(), rects, page: +node.dataset.page })
+      setPopupOpen(false)
     }, 450)
   }, [])
   useEffect(() => {
@@ -192,20 +194,24 @@ export default function ReaderPage({ bookId, initialPage, onBack, onSettings }) 
         <button className={ib} onClick={addBookmark}><Bookmark size={18} /></button>
       </div>
       {scanned && <div className="bg-amber-200 p-2 text-center text-sm text-amber-900">This PDF looks scanned (no selectable text). It needs OCR, which isn't supported.</div>}
-      <div ref={scroller} className="flex-1 overflow-auto p-2" style={{ touchAction: 'pan-x pan-y' }}>
+      <div ref={scroller} className="flex-1 overflow-auto p-2" style={{ touchAction: 'pan-x pan-y', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}>
         {!pdf && <div className="p-8 text-center">Loading…</div>}
         {pdf && (single
           ? <PDFPage key={page + '-' + scale} pdf={pdf} n={page} scale={scale} dim={dim} annotations={annotations.filter(a => a.page === page)} />
           : Array.from({ length: pdf.numPages }, (_, i) =>
               <PDFPage key={i} pdf={pdf} n={i + 1} scale={scale} dim={dim} onVisible={setPage} annotations={annotations.filter(a => a.page === i + 1)} />))}
       </div>
+      {zoom > 1 && pdf && <div className="pointer-events-none fixed inset-x-0 top-1/2 z-30 flex -translate-y-1/2 justify-between px-2">
+        <button aria-label="Scroll PDF left" title="Scroll left" className="pointer-events-auto rounded-full bg-slate-900/65 p-2 text-white shadow-lg active:bg-indigo-700" onClick={() => scroller.current?.scrollBy({ left: -Math.round(scroller.current.clientWidth * .7), behavior: 'smooth' })}><ChevronLeft size={22} /></button>
+        <button aria-label="Scroll PDF right" title="Scroll right" className="pointer-events-auto rounded-full bg-slate-900/65 p-2 text-white shadow-lg active:bg-indigo-700" onClick={() => scroller.current?.scrollBy({ left: Math.round(scroller.current.clientWidth * .7), behavior: 'smooth' })}><ChevronRight size={22} /></button>
+      </div>}
       {single && pdf && <div className="flex justify-center gap-6 bg-white/90 p-1 text-slate-800">
         <button className={ib} onClick={() => goTo(page - 1)}><ChevronLeft /></button>
         <button className={ib} onClick={() => goTo(page + 1)}><ChevronRight /></button></div>}
       {pdf && <div className="h-1 bg-black/10"><div className="h-full bg-indigo-500" style={{ width: `${(page / pdf.numPages) * 100}%` }} /></div>}
       {msg && <div className="fixed bottom-8 left-1/2 -translate-x-1/2 rounded-full bg-slate-900 px-4 py-2 text-sm text-white">{msg}</div>}
       {showNotes && <div className="fixed right-3 top-14 z-40 max-h-[70vh] w-[min(92vw,24rem)] overflow-y-auto rounded-2xl bg-white p-4 text-slate-800 shadow-xl"><div className="mb-3 flex items-center justify-between font-semibold">Notes & highlights <button onClick={() => setShowNotes(false)} className="px-2 text-xl">×</button></div>{!annotations.length && <p className="text-sm text-slate-500">Select text, then save a note or highlight.</p>}{annotations.map(a => <div key={a.id} className="mb-2 rounded-xl bg-slate-50 p-3"><div className="text-xs text-slate-400">{a.kind === 'highlight' ? `${a.color} highlight` : 'Note'} · page {a.page}</div><div className="text-sm font-medium">{a.text}</div>{a.note && <div className="mt-1 whitespace-pre-wrap text-sm text-slate-600">{a.note}</div>}<button className="mt-1 text-xs text-red-600" onClick={() => deleteAnnotation(a)}><Trash2 size={13} className="mr-1 inline" />Delete</button></div>)}</div>}
-      {sel && <TranslationPopup sel={sel} onSave={saveWord} onQuote={saveQuote} onHighlight={(color, note) => saveAnnotation('highlight', note, color)} onNote={note => saveAnnotation('note', note)} onSettings={onSettings} onClose={() => { setSel(null); getSelection()?.removeAllRanges() }} />}
+      {sel && <TranslationPopup sel={sel} compact={!popupOpen} onExpand={() => setPopupOpen(true)} onSave={saveWord} onQuote={saveQuote} onHighlight={(color, note) => saveAnnotation('highlight', note, color)} onNote={note => saveAnnotation('note', note)} onSettings={onSettings} onClose={() => { setSel(null); setPopupOpen(false); getSelection()?.removeAllRanges() }} />}
     </div>
   )
 }

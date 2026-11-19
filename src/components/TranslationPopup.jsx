@@ -1,18 +1,22 @@
 import { useEffect, useRef, useState } from 'react'
-import { Volume2, BookmarkPlus, Copy, X, Check, Loader2, Quote, Settings, RotateCw, Highlighter, StickyNote } from 'lucide-react'
+import { Volume2, BookmarkPlus, Copy, X, Check, Loader2, Quote, Settings, RotateCw, Highlighter, StickyNote, Languages } from 'lucide-react'
 import { translate } from '../services/translationService'
 import { explain } from '../services/aiService'
 import { speak, canSpeak } from '../services/speechService'
 
-export default function TranslationPopup({ sel, onSave, onQuote, onHighlight, onNote, onClose, onSettings }) {
+export default function TranslationPopup({ sel, compact = false, onExpand, onSave, onQuote, onHighlight, onNote, onClose, onSettings }) {
   const [tab, setTab] = useState('translate'), [state, setState] = useState({ loading: true }), [ai, setAi] = useState({}), [note, setNote] = useState(''), [color, setColor] = useState('yellow'), [done, setDone] = useState('')
   const box = useRef(); const [pos, setPos] = useState({ top: -999, left: 0 })
-  useEffect(() => { let dead = false; setState({ loading: true }); translate(sel.text).then(km => !dead && setState({ km })).catch(e => !dead && setState({ error: e.message })); return () => { dead = true } }, [sel.text])
+  useEffect(() => {
+    if (compact) { setState({}); return }
+    let dead = false; setState({ loading: true }); translate(sel.text).then(km => !dead && setState({ km })).catch(e => !dead && setState({ error: e.message })); return () => { dead = true }
+  }, [sel.text, compact])
   useEffect(() => { const h = box.current?.offsetHeight || 300, w = box.current?.offsetWidth || 350, r = sel.rect, m = 8; let top = r.bottom + m; if (top + h > innerHeight - m) top = Math.max(m, r.top - h - m); setPos({ top: Math.min(top, innerHeight - h - m), left: Math.min(Math.max(m, r.left + r.width / 2 - w / 2), innerWidth - w - m) }) }, [sel, state, ai, tab])
   const flash = (k, msg) => { setDone(k); if (msg) setTimeout(() => setDone(''), 1500); else setTimeout(() => setDone(''), 1200) }
   const runExplain = async (regenerate = false) => { setTab('explain'); setAi({ loading: true }); try { setAi({ text: await explain({ text: sel.text, context: sel.context, regenerate }) }) } catch (e) { setAi({ error: e.message }) } }
   const btn = 'flex items-center gap-1 px-3 py-2 rounded-full text-sm bg-indigo-50 text-indigo-700 active:bg-indigo-100 disabled:opacity-40'
   const copy = async text => { await navigator.clipboard?.writeText(text); flash('copy', 'Copied') }
+  if (compact) return <button ref={box} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} onClick={onExpand} className="fixed z-50 flex items-center gap-2 rounded-full bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-xl active:bg-indigo-700" style={pos}><Languages size={17} />Translate</button>
   return <div ref={box} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} className="fixed z-50 flex max-h-[70vh] w-[min(92vw,22rem)] flex-col rounded-2xl bg-white p-4 text-slate-800 shadow-2xl ring-1 ring-black/5" style={pos}>
     <button onClick={onClose} className="absolute right-2 top-2 p-1 text-slate-400"><X size={18} /></button>
     <div className="pr-6 text-xs uppercase tracking-wide text-slate-400">English</div><div className="mb-2 font-medium">{sel.text}</div>
