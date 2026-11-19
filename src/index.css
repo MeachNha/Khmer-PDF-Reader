@@ -1,0 +1,4 @@
+@tailwind base;@tailwind components;@tailwind utilities;
+body{margin:0;-webkit-tap-highlight-color:transparent}
+.textLayer{touch-action:pan-y}
+.pdf-dark canvas{filter:invert(.9) hue-rotate(180deg)}
