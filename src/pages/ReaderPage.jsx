@@ -15,7 +15,7 @@ export default function ReaderPage({ bookId, initialPage, onBack, onSettings }) 
   const [page, setPage] = useState(1), [zoom, setZoom] = useState(1), [single, setSingle] = useState(false)
   const [theme, setTheme] = useState(getSettings().theme), [sel, setSel] = useState(), [width, setWidth] = useState(360)
   const [scanned, setScanned] = useState(false), [msg, setMsg] = useState(''), [err, setErr] = useState(''), [annotations, setAnnotations] = useState([]), [showNotes, setShowNotes] = useState(false)
-  const scroller = useRef(), timer = useRef()
+  const scroller = useRef(), timer = useRef(), pinch = useRef(), zoomAnchor = useRef(), lastPinchUpdate = useRef(0)
 
   useEffect(() => {
     (async () => {
@@ -39,6 +39,72 @@ export default function ReaderPage({ bookId, initialPage, onBack, onSettings }) 
   }, [pdf])
 
   const scale = dim ? ((width - 16) / dim.w) * zoom : 1
+
+  const anchorAt = (x, y) => {
+    const container = scroller.current
+    if (!container) return
+    const pageNode = document.elementFromPoint(x, y)?.closest('[data-page]') || container.querySelector(`[data-page="${page}"]`)
+    if (!pageNode) return
+    const r = pageNode.getBoundingClientRect()
+    zoomAnchor.current = { page: pageNode.dataset.page, x: (x - r.left) / r.width, y: (y - r.top) / r.height, clientX: x, clientY: y }
+  }
+
+  // Keep the content under the fingers in the same screen position as the page grows.
+  useEffect(() => {
+    const anchor = zoomAnchor.current
+    if (!anchor || !scroller.current) return
+    const frame = requestAnimationFrame(() => {
+      const node = scroller.current?.querySelector(`[data-page="${anchor.page}"]`)
+      if (!node) return
+      const r = node.getBoundingClientRect()
+      scroller.current.scrollLeft += r.left + anchor.x * r.width - anchor.clientX
+      scroller.current.scrollTop += r.top + anchor.y * r.height - anchor.clientY
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [zoom, scale])
+
+  // Two-finger pinch zoom for touch screens. One-finger PDF scrolling stays native.
+  useEffect(() => {
+    const el = scroller.current
+    if (!el) return
+    const distance = touches => Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY)
+    const midpoint = touches => ({ x: (touches[0].clientX + touches[1].clientX) / 2, y: (touches[0].clientY + touches[1].clientY) / 2 })
+    const start = e => {
+      if (e.touches.length !== 2) return
+      const mid = midpoint(e.touches)
+      anchorAt(mid.x, mid.y)
+      pinch.current = { distance: distance(e.touches), zoom }
+    }
+    const move = e => {
+      if (!pinch.current || e.touches.length !== 2) return
+      e.preventDefault()
+      const now = performance.now()
+      if (now - lastPinchUpdate.current < 45) return
+      lastPinchUpdate.current = now
+      const mid = midpoint(e.touches)
+      anchorAt(mid.x, mid.y)
+      setZoom(Math.max(.5, Math.min(3, pinch.current.zoom * distance(e.touches) / pinch.current.distance)))
+    }
+    const end = e => {
+      if (e.touches.length < 2) { pinch.current = null; setTimeout(() => { zoomAnchor.current = null }, 80) }
+    }
+    el.addEventListener('touchstart', start, { passive: true })
+    el.addEventListener('touchmove', move, { passive: false })
+    el.addEventListener('touchend', end, { passive: true })
+    el.addEventListener('touchcancel', end, { passive: true })
+    return () => {
+      el.removeEventListener('touchstart', start)
+      el.removeEventListener('touchmove', move)
+      el.removeEventListener('touchend', end)
+      el.removeEventListener('touchcancel', end)
+    }
+  }, [pdf, zoom, page])
+
+  const zoomBy = amount => {
+    const x = innerWidth / 2, y = innerHeight / 2
+    anchorAt(x, y)
+    setZoom(z => Math.max(.5, Math.min(3, z + amount)))
+  }
 
   // Jump to saved page once, in continuous mode
   const jumped = useRef(false)
@@ -118,15 +184,15 @@ export default function ReaderPage({ bookId, initialPage, onBack, onSettings }) 
         <input type="number" value={page} onChange={e => goTo(+e.target.value)}
           className="w-12 rounded border bg-transparent px-1 text-center text-sm" />
         <span className="text-xs">/ {pdf?.numPages}</span>
-        <button className={ib} onClick={() => setZoom(z => Math.max(.5, z - .2))}><ZoomOut size={18} /></button>
-        <button className={ib} onClick={() => setZoom(z => Math.min(3, z + .2))}><ZoomIn size={18} /></button>
+        <button className={ib} aria-label="Zoom out" onClick={() => zoomBy(-.2)}><ZoomOut size={18} /></button>
+        <button className={ib} aria-label="Zoom in" onClick={() => zoomBy(.2)}><ZoomIn size={18} /></button>
         <button className={ib} onClick={() => setSingle(s => !s)}>{single ? <Square size={18} /> : <Rows3 size={18} />}</button>
         <button className={ib} onClick={cycle}><Palette size={18} /></button>
         <button className={ib} aria-label="Notes and highlights" onClick={() => setShowNotes(v => !v)}><StickyNote size={18} /></button>
         <button className={ib} onClick={addBookmark}><Bookmark size={18} /></button>
       </div>
       {scanned && <div className="bg-amber-200 p-2 text-center text-sm text-amber-900">This PDF looks scanned (no selectable text). It needs OCR, which isn't supported.</div>}
-      <div ref={scroller} className="flex-1 overflow-auto p-2">
+      <div ref={scroller} className="flex-1 overflow-auto p-2" style={{ touchAction: 'pan-x pan-y' }}>
         {!pdf && <div className="p-8 text-center">Loading…</div>}
         {pdf && (single
           ? <PDFPage key={page + '-' + scale} pdf={pdf} n={page} scale={scale} dim={dim} annotations={annotations.filter(a => a.page === page)} />
